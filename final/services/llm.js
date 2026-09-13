@@ -29,10 +29,9 @@ Guidelines:
 - Use get_flight_status for questions about departure time, on-time status, or where the flight is going.
 - Use check_bag_status if the caller asks about baggage or does not know where their bag is.
 - Use check_seat for seat assignment questions.
-- Always confirm details before making changes. This demo does not actually change reservations, so if the caller asks to change or cancel, explain that a live agent will need to complete the change and offer to note the request.
 - Never invent reservation, flight, seat, or bag information. Only share data returned by the tools.
 - If the caller sounds frustrated, briefly acknowledge how they feel before solving the problem.
-- When the caller signals the conversation is finished (says goodbye, thanks and asks nothing more, or you have fully resolved their request and they've confirmed there's nothing else), first speak a short, warm farewell in the language the caller is using, and only then call the end_call tool with a brief reason. Do not call end_call without first saying goodbye.`;
+- When the caller signals the conversation is finished (says goodbye, thanks and asks nothing more, or you have fully resolved their request and they've confirmed there's nothing else), call the end_call tool. The farewell_message argument is required and will be spoken to the caller as the last thing they hear, so make it a short, warm goodbye in the language the caller is using.`;
 
 const tools = [
   {
@@ -67,17 +66,22 @@ const tools = [
     type: "function",
     name: "end_call",
     description:
-      "End the phone call. Call this only after saying a spoken farewell to the caller, when the conversation is complete.",
+      "End the phone call. The farewell_message will be spoken to the caller before the call is hung up.",
     parameters: {
       type: "object",
       properties: {
+        farewell_message: {
+          type: "string",
+          description:
+            "A short, warm goodbye to speak to the caller in the language they are using, right before ending the call.",
+        },
         reason: {
           type: "string",
           description:
             "Short reason the call is ending (e.g. 'caller said goodbye', 'request resolved').",
         },
       },
-      required: ["reason"],
+      required: ["farewell_message", "reason"],
     },
   },
 ];
@@ -105,6 +109,8 @@ export async function streamResponse(conversationHistory, onToken, signal, log) 
       input: conversationHistory,
       tools,
       stream: true,
+      reasoning: { effort: "low" },
+      text: { verbosity: "low" },
     }, { signal });
 
     const toolCalls = [];
@@ -152,6 +158,12 @@ export async function streamResponse(conversationHistory, onToken, signal, log) 
 
       if (tc.name === "end_call") {
         endCallReason = args.reason || "conversation complete";
+        const farewell = args.farewell_message || "";
+        if (farewell) {
+          log.info({ farewell }, "Speaking farewell before ending call");
+          onToken(farewell);
+          conversationHistory.push({ role: "assistant", content: farewell });
+        }
         conversationHistory.push({
           type: "function_call_output",
           call_id: tc.callId,
