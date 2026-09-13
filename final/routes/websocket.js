@@ -41,7 +41,7 @@ export default async function websocketRoute(fastify) {
           try {
             session.conversationHistory.push({ role: "user", content: message.voicePrompt });
 
-            const { transferReason } = await streamResponse(
+            const { endCall, reason } = await streamResponse(
               session.conversationHistory,
               (token) => {
                 socket.send(JSON.stringify({ type: "text", token, last: false }));
@@ -50,26 +50,15 @@ export default async function websocketRoute(fastify) {
               fastify.log,
             );
 
-            if (transferReason) {
-              fastify.log.info({ reason: transferReason }, "Transferring to human agent");
-              socket.send(
-                JSON.stringify({
-                  type: "text",
-                  token: "Transferring you to a human agent, please wait.",
-                  last: true,
-                }),
-              );
+            socket.send(JSON.stringify({ type: "text", token: "", last: true }));
+
+            if (endCall) {
               socket.send(
                 JSON.stringify({
                   type: "end",
-                  handoffData: JSON.stringify({
-                    reason: transferReason,
-                    conversationHistory: session.conversationHistory,
-                  }),
+                  handoffData: JSON.stringify({ reason }),
                 }),
               );
-            } else {
-              socket.send(JSON.stringify({ type: "text", token: "", last: true }));
             }
           } catch (error) {
             if (error.name !== "AbortError" && error.name !== "APIUserAbortError") {

@@ -1,5 +1,10 @@
 import OpenAI from "openai";
-import { getRoutes, getSchedule } from "./transit-data.js";
+import {
+  getReservation,
+  getFlightStatus,
+  getBagStatus,
+  getSeat,
+} from "./airline-data.js";
 
 let client;
 
@@ -12,88 +17,64 @@ function getClient() {
 
 const MODEL = process.env.MODEL || "gpt-5-nano";
 
-export const SYSTEM_PROMPT = `You are Vanguard, the virtual assistant for Signal City Transit. You help callers with route information, schedules, and lost item reports.
+export const SYSTEM_PROMPT = `You are the virtual assistant for Owl Airlines, a fictional airline. You help callers with reservations, flight status, seat assignments, and baggage questions.
 
 Guidelines:
 - Be concise and conversational. Callers are listening, not reading — keep responses to 1-2 sentences when possible.
 - This is a voice conversation. Your responses will be read aloud by text-to-speech. Never use markdown, bullet points, numbered lists, arrows, asterisks, colons for lists, or any special characters. Write everything as natural spoken sentences.
-- When describing multiple items, use natural speech like "We have three routes: Route 42 the TwiliTown Express, Route 7 the Ferry Line, and Route 15 the Metro Connect." Do not list them with dashes or bullets.
-- The conversation can be multi-lingual. Expect caller to switch and mix languages. Respond in the language used by the caller. Mix languages naturally in your responses.
-- Use the get_routes tool to answer questions about available routes.
-- Use the get_schedule tool when asked about specific route timing or frequency.
-- Use report_lost_item when a caller wants to report a lost item. Collect all required details _one by one_: their name, the route they were on, a description of the item, and a callback phone number.
-- Never make up route or schedule information. Only share data returned by the tools.
-- If a caller asks about something outside your capabilities, offer to transfer them to a human agent.`;
+- The conversation can be multi-lingual. Expect the caller to switch and mix languages. Respond in the language used by the caller. Mix languages naturally in your responses.
+- Flight numbers start with OA. Reservation confirmation codes start with OWL. When reading a flight number or confirmation code aloud, spell it out character by character (for example "O A one two three", "O W L one hundred") so the caller hears each character clearly, regardless of language.
+- Assume the caller is the customer on record for this call — you do not need to ask for a phone number or confirmation code to look them up.
+- Use get_reservation to pull up the caller's current booking.
+- Use get_flight_status for questions about departure time, on-time status, or where the flight is going.
+- Use check_bag_status if the caller asks about baggage or does not know where their bag is.
+- Use check_seat for seat assignment questions.
+- Always confirm details before making changes. This demo does not actually change reservations, so if the caller asks to change or cancel, explain that a live agent will need to complete the change and offer to note the request.
+- Never invent reservation, flight, seat, or bag information. Only share data returned by the tools.
+- If the caller sounds frustrated, briefly acknowledge how they feel before solving the problem.
+- When the caller signals the conversation is finished (says goodbye, thanks and asks nothing more, or you have fully resolved their request and they've confirmed there's nothing else), first speak a short, warm farewell in the language the caller is using, and only then call the end_call tool with a brief reason. Do not call end_call without first saying goodbye.`;
 
 const tools = [
   {
     type: "function",
-    name: "get_routes",
+    name: "get_reservation",
     description:
-      "Get a list of all Signal City Transit routes with their stops and descriptions.",
+      "Look up the caller's current Owl Airlines reservation and the associated trip details.",
     parameters: { type: "object", properties: {}, required: [] },
   },
   {
     type: "function",
-    name: "get_schedule",
+    name: "get_flight_status",
     description:
-      "Get the schedule for a specific Signal City Transit route, including weekday and weekend service hours and frequency.",
-    parameters: {
-      type: "object",
-      properties: {
-        route_name: {
-          type: "string",
-          description:
-            'The name or partial name of the route (e.g. "Ferry", "Route 42", "Metro")',
-        },
-      },
-      required: ["route_name"],
-    },
+      "Get the current status, origin, destination, and departure time for the caller's flight.",
+    parameters: { type: "object", properties: {}, required: [] },
   },
   {
     type: "function",
-    name: "report_lost_item",
+    name: "check_bag_status",
     description:
-      "Report a lost item on Signal City Transit. Collects caller details and creates a report.",
-    parameters: {
-      type: "object",
-      properties: {
-        caller_name: {
-          type: "string",
-          description: "The caller's name",
-        },
-        route_name: {
-          type: "string",
-          description: "The route the caller was on when they lost the item",
-        },
-        item_description: {
-          type: "string",
-          description: "Description of the lost item",
-        },
-        contact_phone: {
-          type: "string",
-          description: "Phone number to reach the caller about the item",
-        },
-      },
-      required: [
-        "caller_name",
-        "route_name",
-        "item_description",
-        "contact_phone",
-      ],
-    },
+      "Check the baggage status for the caller's active reservation (e.g. checked in, loaded on the aircraft, delayed).",
+    parameters: { type: "object", properties: {}, required: [] },
   },
   {
     type: "function",
-    name: "transfer_to_human",
+    name: "check_seat",
     description:
-      "Transfer the caller to a human agent. Use when the caller requests a person or when you cannot fulfill their request.",
+      "Look up the caller's current seat assignment for their upcoming flight.",
+    parameters: { type: "object", properties: {}, required: [] },
+  },
+  {
+    type: "function",
+    name: "end_call",
+    description:
+      "End the phone call. Call this only after saying a spoken farewell to the caller, when the conversation is complete.",
     parameters: {
       type: "object",
       properties: {
         reason: {
           type: "string",
-          description: "Brief reason for the transfer",
+          description:
+            "Short reason the call is ending (e.g. 'caller said goodbye', 'request resolved').",
         },
       },
       required: ["reason"],
@@ -101,25 +82,16 @@ const tools = [
   },
 ];
 
-function executeToolCall(name, args) {
+function executeToolCall(name) {
   switch (name) {
-    case "get_routes":
-      return JSON.stringify(getRoutes());
-    case "get_schedule": {
-      const schedule = getSchedule(args.route_name);
-      return schedule
-        ? JSON.stringify(schedule)
-        : JSON.stringify({ error: `No route found matching "${args.route_name}"` });
-    }
-    case "report_lost_item": {
-      const refNumber = `SCT-LI-${Math.random().toString().slice(2, 8)}`;
-      return JSON.stringify({
-        success: true,
-        reference_number: refNumber,
-        message: `Lost item report created. Reference: ${refNumber}`,
-        details: args,
-      });
-    }
+    case "get_reservation":
+      return JSON.stringify(getReservation());
+    case "get_flight_status":
+      return JSON.stringify(getFlightStatus());
+    case "check_bag_status":
+      return JSON.stringify(getBagStatus());
+    case "check_seat":
+      return JSON.stringify(getSeat());
     default:
       return JSON.stringify({ error: `Unknown tool: ${name}` });
   }
@@ -158,18 +130,17 @@ export async function streamResponse(conversationHistory, onToken, signal, log) 
 
     if (toolCalls.length === 0) {
       log.info({ response: outputText }, "LLM response");
-      conversationHistory.push({ role: "assistant", content: outputText });
-      return { transferReason: null };
+      if (outputText) {
+        conversationHistory.push({ role: "assistant", content: outputText });
+      }
+      return { endCall: false };
     }
+
+    let endCallReason = null;
 
     for (const tc of toolCalls) {
       log.info({ tool: tc.name, arguments: tc.arguments }, "LLM tool call");
-    }
 
-    // Execute tool calls and check for transfer
-    let transferReason = null;
-
-    for (const tc of toolCalls) {
       conversationHistory.push({
         type: "function_call",
         call_id: tc.callId,
@@ -177,7 +148,18 @@ export async function streamResponse(conversationHistory, onToken, signal, log) 
         arguments: tc.arguments,
       });
 
-      const args = JSON.parse(tc.arguments);
+      const args = tc.arguments ? JSON.parse(tc.arguments) : {};
+
+      if (tc.name === "end_call") {
+        endCallReason = args.reason || "conversation complete";
+        conversationHistory.push({
+          type: "function_call_output",
+          call_id: tc.callId,
+          output: JSON.stringify({ ended: true }),
+        });
+        continue;
+      }
+
       const result = executeToolCall(tc.name, args);
       log.info({ tool: tc.name, result }, "Tool result");
 
@@ -188,8 +170,9 @@ export async function streamResponse(conversationHistory, onToken, signal, log) 
       });
     }
 
-    if (transferReason) {
-      return { transferReason };
+    if (endCallReason) {
+      log.info({ reason: endCallReason }, "LLM requested end of call");
+      return { endCall: true, reason: endCallReason };
     }
 
     // Loop continues — LLM will process tool results and respond
