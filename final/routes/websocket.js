@@ -30,7 +30,7 @@ export default async function websocketRoute(fastify) {
           break;
 
         case "prompt":
-          fastify.log.info({ voicePrompt: message.voicePrompt }, "Caller said");
+          fastify.log.info({ lang: message.lang, voicePrompt: message.voicePrompt }, "Caller said");
           session = sessions.get(socket.callSid);
 
           if (session.abortController) {

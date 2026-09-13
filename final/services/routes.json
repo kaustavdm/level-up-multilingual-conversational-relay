@@ -1,0 +1,70 @@
+{
+  "routes": [
+    {
+      "id": "route-42",
+      "name": "Route 42 - TwiliTown Express",
+      "description": "Express service connecting TwiliTown to Signal City Market via Riverside",
+      "stops": [
+        "TwiliTown Station",
+        "Riverside Station",
+        "Signal City Market"
+      ],
+      "schedule": {
+        "weekday": {
+          "first_service": "05:30",
+          "last_service": "23:00",
+          "frequency_minutes": 15
+        },
+        "weekend": {
+          "first_service": "07:00",
+          "last_service": "22:00",
+          "frequency_minutes": 20
+        }
+      }
+    },
+    {
+      "id": "route-7",
+      "name": "Route 7 - Ferry Line",
+      "description": "Ferry service across Signal City Harbor connecting TwiliTown and Signal City waterfronts",
+      "stops": [
+        "TwiliTown Ferry Terminal",
+        "Riverside Pier",
+        "Signal City Harbor"
+      ],
+      "schedule": {
+        "weekday": {
+          "first_service": "06:00",
+          "last_service": "22:00",
+          "frequency_minutes": 30
+        },
+        "weekend": {
+          "first_service": "08:00",
+          "last_service": "21:00",
+          "frequency_minutes": 45
+        }
+      }
+    },
+    {
+      "id": "route-15",
+      "name": "Route 15 - Metro Connect",
+      "description": "High-frequency metro connecting Riverside to Signal City Central via Downtown",
+      "stops": [
+        "Riverside Station",
+        "Downtown",
+        "Signal City Central"
+      ],
+      "schedule": {
+        "weekday": {
+          "first_service": "05:00",
+          "last_service": "00:00",
+          "frequency_minutes": 10
+        },
+        "weekend": {
+          "first_service": "06:00",
+          "last_service": "23:00",
+          "frequency_minutes": 15
+        }
+      }
+    }
+  ]
+}

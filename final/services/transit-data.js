@@ -3,7 +3,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const dataPath = resolve(__dirname, "../../assets/routes.json");
+const dataPath = resolve(__dirname, "routes.json");
 const data = JSON.parse(readFileSync(dataPath, "utf-8"));
 
 export function getRoutes() {

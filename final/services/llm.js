@@ -21,7 +21,6 @@ Guidelines:
 - Use the get_routes tool to answer questions about available routes.
 - Use the get_schedule tool when asked about specific route timing or frequency.
 - Use report_lost_item when a caller wants to report a lost item. Collect all required details _one by one_: their name, the route they were on, a description of the item, and a callback phone number.
-- Use transfer_to_human when the caller explicitly asks to speak with a person or agent, or when you cannot fulfill their request.
 - Never make up route or schedule information. Only share data returned by the tools.
 - If a caller asks about something outside your capabilities, offer to transfer them to a human agent.`;
 
@@ -120,8 +119,6 @@ function executeToolCall(name, args) {
         details: args,
       });
     }
-    case "transfer_to_human":
-      return JSON.stringify({ action: "transfer", reason: args.reason });
     default:
       return JSON.stringify({ error: `Unknown tool: ${name}` });
   }
@@ -188,10 +185,6 @@ export async function streamResponse(conversationHistory, onToken, signal, log) 
         call_id: tc.callId,
         output: result,
       });
-
-      if (tc.name === "transfer_to_human") {
-        transferReason = args.reason;
-      }
     }
 
     if (transferReason) {

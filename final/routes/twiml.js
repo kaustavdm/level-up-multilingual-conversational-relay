@@ -11,26 +11,18 @@ export default async function twimlRoute(fastify) {
 
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Connect action="/transfer" method="POST">
+  <Connect method="POST">
     <ConversationRelay 
         url="wss://${host}/ws"
         welcomeGreeting="${WELCOME_GREETING}"
+        transcriptionProvider="Deepgram"
+        speechModel="nova-3-general"
         ttsProvider="ElevenLabs"
-        language="en-US"
-        ${intelligenceServiceSid ? `intelligenceService="${intelligenceServiceSid}"` : ""} />
+        language="multi" />
   </Connect>
 </Response>`;
 
     reply.type("text/xml").send(twiml);
   });
 
-  // Handle transfer after conversationRelay ends
-  fastify.all("/transfer", async (request, reply) => {
-    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Play loop="1">https://demo.twilio.com/docs/classic.mp3</Play>
-</Response>`;
-
-    reply.type("text/xml").send(twiml);
-  });
 }

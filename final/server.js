@@ -4,7 +4,6 @@ import websocket from "@fastify/websocket";
 import formbody from "@fastify/formbody";
 import twimlRoute from "./routes/twiml.js";
 import websocketRoute from "./routes/websocket.js";
-import intelligenceRoute from "./routes/intelligence.js";
 
 const requiredEnvVars = [
   "TWILIO_ACCOUNT_SID",
@@ -27,7 +26,6 @@ fastify.register(formbody);
 await fastify.register(websocket);
 await fastify.register(twimlRoute);
 await fastify.register(websocketRoute);
-await fastify.register(intelligenceRoute);
 
 fastify.get("/health", async () => ({
   status: "OK",
