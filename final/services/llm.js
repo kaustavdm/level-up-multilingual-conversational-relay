@@ -17,6 +17,38 @@ function getClient() {
 
 const MODEL = process.env.MODEL || "gpt-5-nano";
 
+// Language codes ConversationRelay is allowed to switch to. These must match the
+// <Language> children declared on the /twiml-alt ConversationRelay noun — sending a
+// code that was not declared makes ConversationRelay error and drop the call.
+export const SUPPORTED_LANGUAGES = [
+  "en-US",
+  "en-IN",
+  "en-GB",
+  "hi-IN",
+  "zh",
+  "ja-JP",
+  "bn-IN",
+  "ta-IN",
+  "te-IN",
+  "kn-IN",
+  "cmn-CN",
+];
+
+const LANGUAGE_DETECTION_PROMPT = `You detect which language a phone caller wants to be spoken to in.
+
+You receive the language currently active on the call and the latest thing the caller said, as transcribed. Reply with exactly one token and nothing else:
+- One language code from this list: ${SUPPORTED_LANGUAGES.join(", ")}
+- Or the word none
+
+Reply with a code only when the caller should now be spoken to in a different language than the active one. Reply none when the active language is still right.
+
+Decide using both the transcript and the active language:
+- If the caller explicitly asks to be spoken to in a language (for example "can you talk in Hindi", "Kya aap Hindi mein baat kar sakte hain?"), return that language's code even when the request itself was made in another language.
+- The transcriber runs in the active language, so speech in another language often arrives romanized or garbled rather than in its own script. Judge by vocabulary and grammar, not script. "Kya aap Hindi mein baat kar sakte hain" is Hindi even though it is written in Latin letters.
+- A caller mixing a few English words into another language is normal conversation, not a language change. Return the code of the language carrying the sentence.
+- For Hindi use hi-IN. For Mandarin Chinese use cmn-CN. For Indian English use en-IN.
+- If you are unsure, return none.`;
+
 export const SYSTEM_PROMPT = `You are the virtual assistant for Owl Airlines, a fictional airline. You help callers with reservations, flight status, seat assignments, and baggage questions.
 
 Guidelines:
@@ -101,6 +133,57 @@ function executeToolCall(name) {
   }
 }
 
+/**
+ * Detect whether the caller has switched language, using the same OpenAI client as the
+ * main conversation turn. Kept deliberately small — no tools, no streaming, minimal
+ * reasoning and a handful of output tokens — so it returns in a few hundred milliseconds
+ * and can run concurrently with streamResponse.
+ *
+ * @param {string} voicePrompt Transcript of what the caller just said.
+ * @param {string} currentLanguage Language code currently active on the call.
+ * @param {object} log Fastify logger.
+ * @returns {Promise<string|null>} A code from SUPPORTED_LANGUAGES to switch to, or null
+ *   to stay on the current language. Never throws — detection failure leaves the call
+ *   on its current language.
+ */
+export async function detectCallerLanguage(voicePrompt, currentLanguage, log) {
+  if (!voicePrompt) return null;
+
+  const start = Date.now();
+
+  try {
+    const response = await getClient().responses.create({
+      model: MODEL,
+      instructions: LANGUAGE_DETECTION_PROMPT,
+      input: `Active language: ${currentLanguage}\nCaller said: ${voicePrompt}`,
+      reasoning: { effort: "minimal" },
+      text: { verbosity: "low" },
+      // Reasoning tokens count against this cap, so leave headroom: a cap that truncates
+      // before the code is emitted yields an empty output_text and no switch at all.
+      max_output_tokens: 256,
+    });
+
+    const detected = (response.output_text || "").trim();
+    const ms = Date.now() - start;
+
+    if (!SUPPORTED_LANGUAGES.includes(detected)) {
+      log.info({ detected, currentLanguage, ms }, "No language switch detected");
+      return null;
+    }
+
+    if (detected === currentLanguage) {
+      log.info({ detected, ms }, "Caller language unchanged");
+      return null;
+    }
+
+    log.info({ from: currentLanguage, to: detected, ms }, "Caller language switch detected");
+    return detected;
+  } catch (error) {
+    log.error(error, "Language detection failed, staying on current language");
+    return null;
+  }
+}
+
 export async function streamResponse(conversationHistory, onToken, signal, log) {
   while (true) {
     const stream = await getClient().responses.create({
@@ -117,8 +200,10 @@ export async function streamResponse(conversationHistory, onToken, signal, log) 
     let outputText = "";
 
     for await (const event of stream) {
+      // Awaited so callers can gate the first token on other work — e.g. sending a
+      // language switch message, which must reach Twilio before any speech it applies to.
       if (event.type === "response.output_text.delta") {
-        onToken(event.delta);
+        await onToken(event.delta);
       }
 
       if (event.type === "response.output_text.done") {
@@ -161,7 +246,7 @@ export async function streamResponse(conversationHistory, onToken, signal, log) 
         const farewell = args.farewell_message || "";
         if (farewell) {
           log.info({ farewell }, "Speaking farewell before ending call");
-          onToken(farewell);
+          await onToken(farewell);
           conversationHistory.push({ role: "assistant", content: farewell });
         }
         conversationHistory.push({

@@ -1,6 +1,7 @@
-import { streamResponse } from "../services/llm.js";
+import { streamResponse, detectCallerLanguage } from "../services/llm.js";
 
-const sessions = new Map(); // Map of callSid to { conversationHistory, abortController }
+// Map of callSid to { conversationHistory, abortController, languageMode, currentLanguage }
+const sessions = new Map();
 
 export default async function websocketRoute(fastify) {
   fastify.get("/ws", { websocket: true }, (socket, request) => {
@@ -19,11 +20,17 @@ export default async function websocketRoute(fastify) {
       switch (message.type) {
         case "setup":
           const { callSid } = message;
-          fastify.log.info({ callSid }, "Call connected");
+          // Set by the <Parameter> children on the ConversationRelay noun. "manual" means
+          // this app detects language switches; "multi" means ConversationRelay does.
+          const languageMode = message.customParameters?.languageMode || "multi";
+          const currentLanguage = message.customParameters?.startLanguage || "multi";
+          fastify.log.info({ callSid, languageMode, currentLanguage }, "Call connected");
 
           sessions.set(callSid, {
             conversationHistory: [],
             abortController: null,
+            languageMode,
+            currentLanguage,
           });
 
           socket.callSid = callSid;
@@ -38,17 +45,49 @@ export default async function websocketRoute(fastify) {
           }
           session.abortController = new AbortController();
 
+          // In manual mode, detect a language switch concurrently with the LLM turn. The
+          // switch language message has to reach Twilio before the speech it applies to,
+          // so the first text token waits on this — by then it has usually resolved.
+          const detection =
+            session.languageMode === "manual"
+              ? detectCallerLanguage(message.voicePrompt, session.currentLanguage, fastify.log)
+              : null;
+          let languageFlushed = false;
+
+          const flushLanguageSwitch = async () => {
+            if (languageFlushed || !detection) return;
+            languageFlushed = true;
+
+            const language = await detection;
+            if (!language) return;
+
+            fastify.log.info({ language }, "Sending switch language message");
+            socket.send(
+              JSON.stringify({
+                type: "language",
+                ttsLanguage: language,
+                transcriptionLanguage: language,
+              }),
+            );
+            session.currentLanguage = language;
+          };
+
           try {
             session.conversationHistory.push({ role: "user", content: message.voicePrompt });
 
             const { endCall, reason } = await streamResponse(
               session.conversationHistory,
-              (token) => {
+              async (token) => {
+                await flushLanguageSwitch();
                 socket.send(JSON.stringify({ type: "text", token, last: false }));
               },
               session.abortController.signal,
               fastify.log,
             );
+
+            // Covers turns that produced no text at all, so the switch still applies to
+            // the next one.
+            await flushLanguageSwitch();
 
             socket.send(JSON.stringify({ type: "text", token: "", last: true }));
 
