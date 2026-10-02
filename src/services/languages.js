@@ -23,12 +23,18 @@ export const LANGUAGES = [
   { code: "en-IN", name: "English (India)" },
   { code: "en-GB", name: "English (United Kingdom)" },
   { code: "de-DE", name: "German" },
+  { code: "es-ES", name: "Spanish (Spain)" },
+  { code: "es-US", name: "Spanish (United States)" },
+  { code: "fr-FR", name: "French (France)" },
+  { code: "fr-CA", name: "French (Canada)" },
   { code: "ja-JP", name: "Japanese" },
   { code: "hi-IN", name: "Hindi" },
   { code: "ta-IN", name: "Tamil" },
   { code: "te-IN", name: "Telugu" },
   { code: "ml-IN", name: "Malayalam" },
   { code: "kn-IN", name: "Kannada" },
+  { code: "pt-BR", name: "Portuguese (Brazil)" },
+  { code: "pt-PT", name: "Portuguese (Portugal)" },
   // Bengali and Mandarin are the two languages that need every attribute spelled out,
   // because neither provider default covers them:
   //   TTS  ElevenLabs is the parent default, and its Flash v2.5 model (the only non-English
