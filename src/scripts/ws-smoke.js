@@ -23,6 +23,20 @@ const CASES = [
     expectLanguage: "hi-IN",
   },
   {
+    name: "manual mode, caller asks for German",
+    languageMode: "manual",
+    startLanguage: "en-US",
+    voicePrompt: "Can you speak in German, please?",
+    expectLanguage: "de-DE",
+  },
+  {
+    name: "manual mode, caller names only the language",
+    languageMode: "manual",
+    startLanguage: "en-US",
+    voicePrompt: " German, please.",
+    expectLanguage: "de-DE",
+  },
+  {
     name: "manual mode, caller stays in English",
     languageMode: "manual",
     startLanguage: "en-US",

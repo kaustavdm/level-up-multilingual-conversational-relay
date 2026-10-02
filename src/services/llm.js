@@ -5,6 +5,7 @@ import {
   getBagStatus,
   getSeat,
 } from "./airline-data.js";
+import { LANGUAGES, SUPPORTED_LANGUAGES } from "./languages.js";
 
 let client;
 
@@ -17,27 +18,11 @@ function getClient() {
 
 const MODEL = process.env.MODEL || "gpt-5-nano";
 
-// Language codes ConversationRelay is allowed to switch to. These must match the
-// <Language> children declared on the /twiml-alt ConversationRelay noun — sending a
-// code that was not declared makes ConversationRelay error and drop the call.
-export const SUPPORTED_LANGUAGES = [
-  "en-US",
-  "en-IN",
-  "en-GB",
-  "hi-IN",
-  "zh",
-  "ja-JP",
-  "bn-IN",
-  "ta-IN",
-  "te-IN",
-  "kn-IN",
-  "cmn-CN",
-];
-
 const LANGUAGE_DETECTION_PROMPT = `You detect which language a phone caller wants to be spoken to in.
 
 You receive the language currently active on the call and the latest thing the caller said, as transcribed. Reply with exactly one token and nothing else:
-- One language code from this list: ${SUPPORTED_LANGUAGES.join(", ")}
+- One language code from this list (code: language):
+${LANGUAGES.map(({ code, name }) => `  ${code}: ${name}`).join("\n")}
 - Or the word none
 
 Reply with a code only when the caller should now be spoken to in a different language than the active one. Reply none when the active language is still right.
@@ -46,7 +31,9 @@ Decide using both the transcript and the active language:
 - If the caller explicitly asks to be spoken to in a language (for example "can you talk in Hindi", "Kya aap Hindi mein baat kar sakte hain?"), return that language's code even when the request itself was made in another language.
 - The transcriber runs in the active language, so speech in another language often arrives romanized or garbled rather than in its own script. Judge by vocabulary and grammar, not script. "Kya aap Hindi mein baat kar sakte hain" is Hindi even though it is written in Latin letters.
 - A caller mixing a few English words into another language is normal conversation, not a language change. Return the code of the language carrying the sentence.
-- For Hindi use hi-IN. For Mandarin Chinese use cmn-CN. For Indian English use en-IN.
+- A request may name only the language ("German, please"). Map the language name to its code from the list.
+- If the caller asks for English without naming a variety, return none when any English is already active, and en-US otherwise.
+- If the requested language is not in the list, return none.
 - If you are unsure, return none.`;
 
 export const SYSTEM_PROMPT = `You are the virtual assistant for Owl Airlines, a fictional airline. You help callers with reservations, flight status, seat assignments, and baggage questions.
