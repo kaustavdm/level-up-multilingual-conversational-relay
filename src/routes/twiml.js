@@ -11,7 +11,7 @@ const WELCOME_GREETING = `Thanks for calling Owl Airlines. How can I help you to
 export default async function twimlRoute(fastify) {
   // Automatic language detection. Requires transcriptionProvider="Deepgram" and
   // ttsProvider="ElevenLabs"; other providers with "multi" end the session.
-  fastify.all("/twiml", async (request, reply) => {
+  fastify.all("/twiml-multi", async (request, reply) => {
     const host = request.headers.host;
 
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -35,7 +35,7 @@ export default async function twimlRoute(fastify) {
 
   // Manual language switching. Every language the app may switch to must be declared as a
   // <Language> child here, and must be listed in SUPPORTED_LANGUAGES in services/llm.js.
-  fastify.all("/twiml-alt", async (request, reply) => {
+  fastify.all("/twiml", async (request, reply) => {
     const host = request.headers.host;
 
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
