@@ -1,80 +1,136 @@
-# Setting up the demo code
+# Multilingual voice agent on ConversationRelay
 
-- Install Node.js latest LTS
-- Then, in the `final/` directory (current dir):
-- Run `npm install`
-- `cp .env.example .env` and update values. You will need:
-    - Twilio Account SID
-    - Create a Twilio API Key and provide the API Key SID and Client Secret
-    - Create an OpenAI API key
-- Start the server: `node server.js`
-- For local run:
-    - Setup `ngrok` to forward to port `3000`
-    - Setup dev-phone
-- Get a Twilio phone number and configure the phone number's incoming voice webhook to go to: `https:<domain-or-nrok-domain>/twiml`
+An Owl Airlines phone agent that handles a caller switching language mid-call. Two
+language-switching strategies, one TwiML endpoint each.
 
-# Language handling
+## Setup
 
-The demo shows two ways of handling a multi-lingual caller, one per TwiML endpoint. Point
-the phone number's incoming voice webhook at whichever one you want to demo.
+1. Install Node.js LTS, then `npm install`.
+2. `cp .env.example .env` and fill in: Twilio Account SID, a Twilio API Key SID and
+   secret, and an OpenAI API key. `MODEL` is optional (default `gpt-5-nano`).
+3. `node server.js` — listens on `PORT`, default 3000.
+4. Expose it: `ngrok http 3000`.
+5. Point your Twilio number's incoming voice webhook at `https://<your-domain>/twiml`.
 
-| Endpoint | Language switching | How |
+## Layout
+
+| Path | What it does |
+| --- | --- |
+| `server.js` | Fastify setup, env validation, `/health` |
+| `routes/twiml.js` | The two TwiML endpoints |
+| `routes/websocket.js` | ConversationRelay protocol: `setup`, `prompt`, `interrupt` |
+| `services/llm.js` | Agent turn, tools, and language detection |
+| `services/languages.js` | The supported-language list |
+| `services/airline-data.js` | Fake reservation data |
+| `scripts/ws-smoke.js` | Smoke test |
+
+## The two modes
+
+| Endpoint | Switching | How |
 | --- | --- | --- |
-| `/twiml` | Automatic | `language="multi"` on `<ConversationRelay>`. Deepgram detects the spoken language, ElevenLabs speaks it back. The app does nothing. |
-| `/twiml-alt` | Manual | The app detects the caller's language and sends a switch language message over the WebSocket. |
+| `/twiml` | Manual | The app detects the language and sends a switch language message. |
+| `/twiml-multi` | Automatic | `language="multi"`. Deepgram detects, ElevenLabs speaks it back. The app does nothing. |
 
-Each endpoint tells the WebSocket server which mode it is in via `<Parameter name="languageMode">`,
-which arrives in the `setup` message as `customParameters`. Manual detection only runs in
-`manual` mode — running it under `multi` would fight ConversationRelay's own detection.
+Each endpoint passes its mode to the WebSocket server as `<Parameter name="languageMode">`,
+which arrives in the `setup` message as `customParameters`. Manual detection runs only in
+`manual` mode — under `multi` it would fight ConversationRelay's own detection.
 
 ## Manual detection
 
-`detectCallerLanguage` in `services/llm.js` reads the `prompt` message's `voicePrompt` and
-`lang` and returns a language code to switch to, or `null` to stay put. It handles both a
-caller explicitly asking ("can you talk in Hindi", "Kya aap Hindi mein baat kar sakte
-hain?") and a caller simply switching — including romanized transcripts, which is what you
-get when the transcriber is running in a different language than the one being spoken.
-
-On a switch the server sends:
+`detectCallerLanguage` in `services/llm.js` takes the caller's transcript and the active
+language, and returns a code to switch to or `null`. On a switch the server sends:
 
 ```json
 { "type": "language", "ttsLanguage": "hi-IN", "transcriptionLanguage": "hi-IN" }
 ```
 
-Two things make this work on a live call:
+Two things make it work on a live call:
 
-- **It runs concurrently with the LLM turn.** The detection call takes roughly 1 second on
-  its own — about the same as the main turn's time to first token — so running the two in
-  parallel adds no measurable latency to the reply. Every small model tested (`gpt-5-nano`,
-  `gpt-4.1-nano`, `gpt-4o-mini`) lands near 1 second; the API round-trip dominates, so
-  changing model does not make this meaningfully faster.
-- **The switch is sent before any speech.** ConversationRelay applies a language message to
-  future TTS and STT, so a switch sent after the first token would leave the current reply
-  spoken in the old language. The first text token awaits the detection result.
+- **It runs concurrently with the agent turn.** Detection takes ~1s, about the same as the
+  turn's time to first token, so in parallel it costs no measurable latency. Every small
+  model tested (`gpt-5-nano`, `gpt-4.1-nano`, `gpt-4o-mini`) lands near 1s — the round-trip
+  dominates, so a different model won't help.
+- **The switch is sent before any speech.** A language message applies to future TTS and
+  STT, so one sent after the first token leaves the current reply in the old language. The
+  first text token awaits the detection result.
 
-Detection failures are logged and ignored — the call continues in its current language.
+Detection failures are logged and ignored; the call stays in its current language.
 
-## Supported languages
+Because the agent turn runs at the same time, its system prompt tells the model to call a
+tool only when the answer needs that data — otherwise "can you speak German" triggers an
+unprompted `get_reservation`.
 
-`SUPPORTED_LANGUAGES` in `services/llm.js` is the allow-list, and a detected code outside it
-is discarded. It must stay in sync with the `<Language>` children on the `/twiml-alt`
-`<ConversationRelay>` noun: switching to a language that was not declared there makes
-ConversationRelay raise an error and end the call.
+**A caller who just starts speaking another language usually won't be heard.** The
+transcriber runs in the active language only, so Google STT on `en-US` finds no final
+transcript for Hindi speech and ConversationRelay sends no `prompt` at all. Detection can
+only act on transcripts that arrive, so a manual-mode caller has to ask in something the
+active transcriber can pick up ("Hindi, please"). For any language from the first word,
+use `/twiml-multi`.
 
-Currently: `en-US`, `en-IN`, `en-GB`, `hi-IN`, `zh`, `ja-JP`, `bn-IN`, `ta-IN`, `te-IN`,
-`kn-IN`, `cmn-CN`.
+## Languages and providers
 
-# Testing language detection
+`services/languages.js` is the single source of truth: `/twiml` generates one `<Language>`
+child per entry and the detector only accepts codes from that same list, so they cannot
+drift apart. That matters because switching to a language that was not declared makes
+ConversationRelay error and end the call.
+
+Each entry has a `code`, a `name` (shown to the detector so "German" maps to `de-DE`), and
+optionally `ttsProvider`, `voice`, `transcriptionProvider` and `speechModel`, which
+override the parent `<ConversationRelay>`:
+
+```js
+{ code: "hi-IN", name: "Hindi" }   // inherits the parent's providers
+{ code: "bn-IN", name: "Bengali", ttsProvider: "Google", voice: "bn-IN-Chirp3-HD-Charon",
+  transcriptionProvider: "Deepgram", speechModel: "nova-3-general" }
+```
+
+Currently `en-US`, `en-IN`, `en-GB`, `de-DE`, `ja-JP`, `hi-IN`, `ta-IN`, `te-IN`, `ml-IN`,
+`kn-IN`, `bn-IN`, `cmn-CN`.
+
+### Choosing providers
+
+ConversationRelay validates TTS and STT **separately**, each against that provider's own
+inventory. So one language can need Google to speak and Deepgram to listen — which is
+exactly what Bengali needs:
+
+| | Bengali | Mandarin |
+| --- | --- | --- |
+| ElevenLabs TTS | not supported | supported |
+| Google TTS | `bn-IN-Chirp3-HD-Charon` | `cmn-CN-Wavenet-A` |
+| Google STT | rejected on every speech model | `chirp` models only, as `cmn-Hans-CN` |
+| Deepgram STT | `nova-3-general` | `nova-3-general` |
+
+ElevenLabs is the default TTS provider and has no Bengali — ConversationRelay can only
+select its Flash and Turbo models, none of which cover it. Mandarin uses the same
+Google + Deepgram pair for consistency, though ElevenLabs would work for its TTS.
+
+Two naming traps: Twilio writes Mandarin as `cmn-CN` (`zh-CN` is not in its TTS inventory
+at all), and names Deepgram's `nova-3` as `nova-3-general`.
+
+Invalid combinations error as `provider/language/setting` —
+`block_elevenlabs/bn-IN/WiaIVvI1gDL4vT4y7qUU` for a voice, `google/bn-IN/long` for a
+speech model. Watching which segment changes between attempts tells you which half is
+still wrong.
+
+Inventories: [Twilio TTS voices](https://www.twilio.com/docs/voice/twiml/say/text-speech)
+(Google, Amazon) · [Picking a voice](https://www.twilio.com/docs/voice/conversationrelay/voice-configuration)
+(ElevenLabs, per-language defaults) · [Deepgram languages](https://developers.deepgram.com/docs/models-languages-overview)
+
+## Testing
 
 `scripts/ws-smoke.js` stands in for Twilio: it connects to `/ws`, sends the `setup` and
-`prompt` messages ConversationRelay would send, and checks that a switch language message
+`prompt` messages ConversationRelay would send, and checks a switch language message
 arrives before any speech. It makes real model calls, so the server needs a valid
 `OPENAI_API_KEY`.
 
-```
-node server.js          # in one terminal
-node scripts/ws-smoke.js
+```sh
+node server.js            # one terminal
+node scripts/ws-smoke.js  # another
 ```
 
-It covers a caller asking for Hindi (expects a switch to `hi-IN`), a caller staying in
-English (expects no switch), and `multi` mode (expects the app not to switch at all).
+Cases: asking for Hindi (expects `hi-IN`), asking for German in a full sentence and by
+name alone (expects `de-DE`), staying in English (no switch), and `multi` mode (the app
+must not switch at all).
+
+For a server on another port, set both: `PORT=3917 node server.js` and
+`WS_URL=ws://127.0.0.1:3917/ws node scripts/ws-smoke.js`.

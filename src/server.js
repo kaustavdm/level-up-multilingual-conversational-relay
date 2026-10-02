@@ -37,7 +37,7 @@ const HOST = "0.0.0.0";
 
 try {
   await fastify.listen({ port: PORT, host: HOST });
-  fastify.log.info(`Running: final`);
+  fastify.log.info(`Ready — point your Twilio number's voice webhook at /twiml`);
 } catch (err) {
   fastify.log.error(err);
   process.exit(1);
