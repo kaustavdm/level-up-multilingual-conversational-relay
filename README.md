@@ -25,8 +25,7 @@ You'll leave knowing how to:
 
 ## Repository contents
 
-This repo is split into two applications.
-
-- [`./final/`](final/): The `final/` directory contains the full demo application. You can run it right away and test it by setting up the `final/.env` file based on [`final/.env.example`](final/.env.example).
-- [`./build/`](build/): The `build/` directory contains the baseline application, minus the parts edited during live demo.
-- [`RUNBOOK.md`](RUNBOOK.md): The `RUNBOOK.md` at the root of the repo contains live demo instructions, such that when following RUNBOOK.md end to end and applying the edits to `build/` you will end up with the equivalent application in `final/`.
+- [`./src/`](src/): The demo application. Run it by setting up `src/.env` from
+  [`src/.env.example`](src/.env.example) — see [`src/README.md`](src/README.md) for setup
+  and a walkthrough of how the language switching works.
+- [`RUNBOOK.md`](RUNBOOK.md): Live demo instructions.
